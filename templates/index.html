@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ML Video Recorder</title>
+
+    <!-- Professional font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: 'Inter', sans-serif;
+        }
+        .hidden {
+            display: none;
+        }
+
+        /* Prediction mode background */
+        body.predict-mode {
+            background: linear-gradient(135deg, #020617, #020617);
+        }
+
+        /* Prediction card tweaks */
+        .prediction {
+            background: #020617;
+            color: white;
+        }
+
+        .prediction h2 {
+            color: white;
+        }
+
+        .prediction video {
+            background: black;
+        }
+        /* Prediction result text */
+        #predictionResult {
+            margin-top: 18px;
+            font-size: 22px;
+            font-weight: 600;
+            color: #e5e7eb;
+            text-align: center;
+        }
+
+        /* Emphasize predicted label */
+        #predictionResult span {
+            display: block;
+            margin-top: 6px;
+            font-size: 30px;
+            font-weight: 700;
+            color: #60a5fa;
+        }
+
+        .predict-btn {
+            width: 100%;
+            margin-top: 10px;
+            background: #2563eb;
+            color: white;
+        }
+
+        .predict-btn:hover {
+            background: #1d4ed8;
+        }
+
+        #captureBtn {
+            width: 100%;
+            margin-top: 12px;
+            background: #16a34a;
+            color: white;
+        }
+
+        .train-btn {
+            width: 100%;
+            margin-top: 10px;
+            background: #2563eb;
+            color: white;
+        }
+
+        .train-btn:hover:not(:disabled) {
+            background: #1d4ed8;
+        }
+
+        .train-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #f5f7fa, #e4e8ee);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .card {
+            background: white;
+            width: 420px;
+            padding: 28px;
+            border-radius: 14px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08);
+            text-align: center;
+        }
+
+        h2 {
+            margin: 0 0 20px;
+            font-weight: 600;
+            color: #1f2937;
+        }
+
+        video {
+            width: 100%;
+            border-radius: 10px;
+            background: #111827;
+            margin-bottom: 16px;
+        }
+
+        label {
+            display: block;
+            text-align: left;
+            font-size: 14px;
+            font-weight: 500;
+            color: #374151;
+            margin-bottom: 6px;
+        }
+
+        input {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid #d1d5db;
+            font-size: 14px;
+            margin-bottom: 18px;
+            outline: none;
+            transition: border 0.2s;
+        }
+
+        input:focus {
+            border-color: #2563eb;
+        }
+
+        .button-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        button {
+            flex: 1;
+            padding: 10px;
+            border-radius: 8px;
+            border: none;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: transform 0.1s ease, box-shadow 0.1s ease, background 0.2s;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        #startBtn {
+            background: #16a34a;
+            color: white;
+        }
+
+        #startBtn:hover:not(:disabled) {
+            background: #15803d;
+        }
+
+        #stopBtn {
+            background: #dc2626;
+            color: white;
+        }
+
+        #stopBtn:hover:not(:disabled) {
+            background: #b91c1c;
+        }
+
+        .delete-btn {
+            width: 100%;
+            background: #374151;
+            color: white;
+        }
+
+        .delete-btn:hover {
+            background: #1f2937;
+        }
+
+        .footer {
+            margin-top: 14px;
+            font-size: 12px;
+            color: #6b7280;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="card">
+    <h2>ML Video Recorder</h2>
+
+    <video id="preview" autoplay muted></video>
+
+    <label for="labelInput">Label (name)</label>
+    <input id="labelInput" type="text" placeholder="Enter your name" />
+
+    <div class="button-row">
+        <button id="startBtn" disabled>Start</button>
+        <button id="stopBtn" disabled>Stop</button>
+    </div>
+
+    <button class="delete-btn" onclick="deleteVideo()">Delete Last Video</button>
+    <button class="train-btn" onclick="trainModel()">Train Model</button>
+    <button class="predict-btn" onclick="enterPredictionMode()">
+        Make Prediction
+    </button>
+    
+    <div class="footer">
+        Camera data is recorded locally and sent securely for ML training
+    </div>
+</div>
+
+<div class="card prediction hidden" id="predictionCard">
+    <h2>Who am I?</h2>
+
+    <video id="predictPreview" autoplay></video>
+
+    <button id="captureBtn">Capture Photo</button>
+
+    <button class="delete-btn" onclick="exitPredictionMode()">
+        Back to Home
+    </button>
+    
+
+    <div class="footer" id="predictionResult">
+        Take a photo to make a prediction
+    </div>
+</div>
+
+<script>
+    let currentVideoId = null;
+    document.addEventListener("DOMContentLoaded", () => {
+        let recorder;
+        let chunks = [];
+    
+        const startBtn = document.getElementById("startBtn");
+        const stopBtn = document.getElementById("stopBtn");
+        const preview = document.getElementById("preview");
+    
+        startBtn.disabled = true;
+        stopBtn.disabled = true;
+        
+        navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+            .then(stream => {
+                preview.srcObject = stream;
+                preview.play();
+                recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
+    
+                startBtn.disabled = false;
+    
+                recorder.ondataavailable = e => {
+                    if (e.data.size > 0) chunks.push(e.data);
+                };
+    
+                recorder.onstop = async () => {
+                    stopBtn.disabled = true;
+                    startBtn.disabled = false;
+    
+                    const blob = new Blob(chunks, { type: "video/webm" });
+                    chunks = [];
+                    const label = document.getElementById("labelInput").value.trim();
+
+                    const formData = new FormData();
+                    formData.append("video", blob, "sample.webm");
+                    formData.append("label", label);
+                    
+                    const response = await fetch("/upload", {
+                        method: "POST",
+                        body: formData
+                    });
+    
+                    const data = await response.json();
+                    currentVideoId = data.video_id;
+                };
+    
+                startBtn.onclick = () => {
+                    const label = document.getElementById("labelInput").value.trim();
+
+                    if (!label) {
+                        alert("Please enter a label before recording.");
+                        return;
+                    }
+
+                    recorder.start();
+                    startBtn.disabled = true;
+                    stopBtn.disabled = false;
+                };
+
+                stopBtn.onclick = () => {
+                    if (recorder.state === "recording") {
+                        recorder.stop();
+                    }
+                };
+            })
+            .catch(err => {
+                console.warn("Camera not available yet:", err);
+            });
+    });
+
+    async function deleteVideo() {
+        if (!currentVideoId) {
+            alert("No video to delete yet.");
+            return;
+        }
+
+        const response = await fetch(`/delete/${currentVideoId}`, {
+            method: "DELETE"
+        });
+
+        if (response.ok) {
+            alert("Video and frames deleted.");
+            currentVideoId = null;
+        } else {
+            alert("Failed to delete video.");
+        }
+    }
+    async function trainModel() {
+        const trainBtn = document.querySelector(".train-btn");
+        trainBtn.disabled = true;
+        trainBtn.textContent = "Training...";
+
+        try {
+            const response = await fetch("/train", {
+                method: "POST"
+            });
+
+            if (!response.ok) {
+                throw new Error("Training failed");
+            }
+
+            const data = await response.json();
+            alert("Model training complete!");
+        } catch (err) {
+            console.error(err);
+            alert("Error training model.");
+        } finally {
+            trainBtn.disabled = false;
+            trainBtn.textContent = "Train Model";
+        }
+    }
+    let predictStream;
+
+    function enterPredictionMode() {
+        document.body.classList.add("predict-mode");
+
+        document.querySelector(".card").classList.add("hidden");
+        document.getElementById("predictionCard").classList.remove("hidden");
+
+        startPredictionCamera();
+    }
+
+    function stopPredictionCamera() {
+        if (predictStream) {
+            predictStream.getTracks().forEach(track => track.stop());
+            predictStream = null;
+        }
+    }
+
+    async function startPredictionCamera() {
+        const video = document.getElementById("predictPreview");
+
+        predictStream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false
+        });
+
+        video.srcObject = predictStream;
+        video.play();
+    }
+
+    function exitPredictionMode() {
+        stopPredictionCamera();
+
+        document.body.classList.remove("predict-mode");
+
+        document.getElementById("predictionCard").classList.add("hidden");
+        document.querySelector(".card").classList.remove("hidden");
+
+        document.getElementById("predictionResult").textContent =
+            "Take a photo to make a prediction";
+    }
+
+    document.getElementById("captureBtn").onclick = async () => {
+        const video = document.getElementById("predictPreview");
+
+        const canvas = document.createElement("canvas");
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(video, 0, 0);
+
+        const blob = await new Promise(resolve =>
+            canvas.toBlob(resolve, "image/jpeg")
+        );
+
+        const formData = new FormData();
+        formData.append("image", blob, "capture.jpg");
+
+        const res = await fetch("/predict", {
+            method: "POST",
+            body: formData
+        });
+
+        const data = await res.json();
+
+        document.getElementById("predictionResult").innerHTML = `
+            Prediction
+            <span>${data.label}</span>
+        `;
+    };
+
+</script>
+
+</body>
+</html>
