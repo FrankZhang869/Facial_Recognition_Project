@@ -110,6 +110,10 @@ async def predict (image: UploadFile = File(...)):
 
     with torch.no_grad():
         outputs = model(x)
+        idx_to_class = {v: k for k, v in class_map.items()}
+        probs = torch.softmax(outputs, dim=1)[0]
+        for idx, prob in enumerate(probs):
+            print(f"{idx_to_class[idx]}: {prob.item():.4f}")
         pred_idx = outputs.argmax(dim=1).item()
 
     label = idx_to_class[pred_idx]
