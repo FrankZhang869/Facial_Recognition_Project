@@ -13,12 +13,23 @@ from contextlib import asynccontextmanager
 from torchvision import transforms
 from PIL import Image
 import io
+from facenet_pytorch import MTCNN
+
+
 
 MODEL_PATH = "model.pth"
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model = None
 class_map = None
 idx_to_class = None
+
+mtcnn = MTCNN(
+    keep_all=False,
+    image_size=160,
+    post_process=False,
+    device=device
+)
+
 def load_model():
     global model, class_map, idx_to_class
 
@@ -99,23 +110,37 @@ transform = transforms.Compose([
 ])
 
 @app.post("/predict")
-async def predict (image: UploadFile = File(...)):
+async def predict(image: UploadFile = File(...)):
     if model is None:
         return {"error": "Model not trained yet"}
 
     img_bytes = await image.read()
     img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
 
-    x = transform(img).unsqueeze(0).to(device)
+    face = mtcnn(img)
+
+    if face is None:
+        return {"error": "No face detected"}
+
+    face = face.permute(1, 2, 0).cpu().numpy().astype("uint8")
+    face_pil = Image.fromarray(face)
+
+    x = transform(face_pil).unsqueeze(0).to(device)
 
     with torch.no_grad():
         outputs = model(x)
         idx_to_class = {v: k for k, v in class_map.items()}
         probs = torch.softmax(outputs, dim=1)[0]
+
         for idx, prob in enumerate(probs):
             print(f"{idx_to_class[idx]}: {prob.item():.4f}")
+
         pred_idx = outputs.argmax(dim=1).item()
 
     label = idx_to_class[pred_idx]
+    confidence = torch.softmax(outputs, dim=1)[0][pred_idx].item()
+
+    if confidence < 0.8:
+        return {"label": "undefined"}
 
     return {"label": label}
